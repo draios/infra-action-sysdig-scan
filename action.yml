@@ -1,0 +1,106 @@
+name: 'Sysdig Scan'
+description: GitHub Action for scan container with Sysdig engine'
+outputs: {}
+inputs:
+  image-tag:
+    description: "The tag of the local image to scan"
+    required: true
+
+  sysdig-secure-token:
+    description: "API token for Sysdig Scanning auth"
+    required: true
+
+  scan-type:
+    description: "The type of scan to perform"
+    required: true
+    default: "legacy"
+
+  sysdig-secure-url:
+    description: "Sysdig Secure URL"
+    required: false
+    default: https://prodmon.app.sysdig.com
+
+  sysdig-skip-tls:
+    description: "Skip TLS verification when calling secure endpoints."
+    required: false
+    default: "false"
+
+  ignore-failed-scan:
+    description: "Don't fail the execution of this action even if the scan result is FAILED"
+    required: false
+    default: "false"
+
+  severity:
+    description: "Severity level to fail the scan"
+    required: false
+    default: "unknown"
+
+  input-type:
+    description: "If specified, the image will be pulled from the specified registry"
+    required: false
+    default: "docker-daemon"
+
+  github_token:
+    description: "GITHUB Token used to tag the repo"
+    required: false
+
+runs:
+  using: "composite"
+  steps:
+    # NOTE: the following workaround is needed to explicitly set up the context for buildx when running on DinD
+    - name: Custom docker context for use with self_hosted runners
+      shell: bash
+      run: if ! (docker context ls | grep -q mycontext) ;then docker context create mycontext; fi
+
+    - name: Set up Docker Buildx
+      id: buildx
+      uses: docker/setup-buildx-action@v1
+      with:
+        endpoint: mycontext
+
+    - name: "Legacy scanner"
+      if: ${{ inputs.scan-type == 'legacy' }}
+      uses: sysdiglabs/scan-action@v3.4.0
+      with:
+        image-tag: ${{ inputs.image-tag }}
+        sysdig-secure-token: ${{ inputs.sysdig-secure-token }}
+        input-type: ${{ inputs.input-type }}
+        sysdig-secure-url: ${{ inputs.sysdig-secure-url }}
+        sysdig-skip-tls: ${{ inputs.sysdig-skip-tls }}
+        ignore-failed-scan: ${{ inputs.ignore-failed-scan }}
+        severity: ${{ inputs.severity }}
+
+    - name: Setup cache
+      uses: actions/cache@v3
+      if: ${{ inputs.scan-type == 'new' }}
+      with:
+        path: cache
+        key: ${{ runner.os }}-cache-${{ hashFiles('**/sysdig-cli-scanner', '**/latest_version.txt', '**/db/main.db.meta.json', '**/scanner-cache/inlineScannerCache.db') }}
+        restore-keys: ${{ runner.os }}-cache-
+
+    - name: "Download sysdig-cli-scanner if needed"
+      shell: bash
+      if: ${{ inputs.scan-type == 'new' }}
+      run: |
+        curl -sLO https://download.sysdig.com/scanning/sysdig-cli-scanner/latest_version.txt
+        mkdir -p ${GITHUB_WORKSPACE}/cache/db/
+        if [ ! -f ${GITHUB_WORKSPACE}/cache/latest_version.txt ] || [ $(cat ./latest_version.txt) != $(cat ${GITHUB_WORKSPACE}/cache/latest_version.txt) ]; then
+          cp ./latest_version.txt ${GITHUB_WORKSPACE}/cache/latest_version.txt
+          curl -sL -o ${GITHUB_WORKSPACE}/cache/sysdig-cli-scanner "https://download.sysdig.com/scanning/bin/sysdig-cli-scanner/$(cat ${GITHUB_WORKSPACE}/cache/latest_version.txt)/linux/amd64/sysdig-cli-scanner"
+          chmod +x ${GITHUB_WORKSPACE}/cache/sysdig-cli-scanner
+        else
+          echo "sysdig-cli-scanner latest version already downloaded"
+        fi
+
+    - name: Scan the image using sysdig-cli-scanner
+      shell: bash
+      if: ${{ inputs.scan-type == 'new' }}
+      env:
+        SECURE_API_TOKEN: ${{ inputs.sysdig-secure-token }}
+      run: |
+        ${GITHUB_WORKSPACE}/cache/sysdig-cli-scanner \
+          --apiurl ${{ inputs.sysdig-secure-url }} \
+          docker://127.0.0.1/${{ inputs.image-tag }} \
+          --console-log \
+          --dbpath=${GITHUB_WORKSPACE}/cache/db/ \
+          --cachepath=${GITHUB_WORKSPACE}/cache/scanner-cache/
