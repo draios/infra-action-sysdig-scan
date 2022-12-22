@@ -44,6 +44,15 @@ inputs:
     description: "GITHUB Token used to tag the repo"
     required: false
 
+  policy-list:
+    description: "Comma separated list of policies to include"
+    required: false
+
+  scanning-report-path:
+    description: "Report file (relative path)."
+    required: false
+    default: "cache/vulnerabilities.json"
+
 runs:
   using: "composite"
   steps:
@@ -59,7 +68,7 @@ runs:
         endpoint: mycontext
 
     - name: "Legacy scanner"
-      if: ${{ inputs.scan-type == 'legacy' }}
+      if: ${{ inputs.scan-type == 'legacy' || inputs.scan-type == 'both' }}
       uses: sysdiglabs/scan-action@v3.4.0
       with:
         image-tag: ${{ inputs.image-tag }}
@@ -72,7 +81,7 @@ runs:
 
     - name: Setup cache
       uses: actions/cache@v3
-      if: ${{ inputs.scan-type == 'new' }}
+      if: ${{ inputs.scan-type == 'new' || inputs.scan-type == 'both' }}
       with:
         path: cache
         key: ${{ runner.os }}-cache-${{ hashFiles('**/sysdig-cli-scanner', '**/latest_version.txt', '**/db/main.db.meta.json', '**/scanner-cache/inlineScannerCache.db') }}
@@ -80,7 +89,7 @@ runs:
 
     - name: "Download sysdig-cli-scanner if needed"
       shell: bash
-      if: ${{ inputs.scan-type == 'new' }}
+      if: ${{ inputs.scan-type == 'new' || inputs.scan-type == 'both' }}
       run: |
         curl -sLO https://download.sysdig.com/scanning/sysdig-cli-scanner/latest_version.txt
         mkdir -p ${GITHUB_WORKSPACE}/cache/db/
@@ -94,13 +103,31 @@ runs:
 
     - name: Scan the image using sysdig-cli-scanner
       shell: bash
-      if: ${{ inputs.scan-type == 'new' }}
+      if: ${{ inputs.scan-type == 'new' || inputs.scan-type == 'both' }}
       env:
         SECURE_API_TOKEN: ${{ inputs.sysdig-secure-token }}
+        POLICY_LIST: ${{ inputs.policy-list }}
       run: |
+        POLICY_CMD="${POLICY_LIST+--policy=$POLICY_LIST}"
+        POLICY="${POLICY_CMD:-}"
         ${GITHUB_WORKSPACE}/cache/sysdig-cli-scanner \
           --apiurl ${{ inputs.sysdig-secure-url }} \
-          docker://127.0.0.1/${{ inputs.image-tag }} \
+          docker://${{ inputs.image-tag }} \
           --console-log \
           --dbpath=${GITHUB_WORKSPACE}/cache/db/ \
-          --cachepath=${GITHUB_WORKSPACE}/cache/scanner-cache/
+          --cachepath=${GITHUB_WORKSPACE}/cache/scanner-cache/ ${POLICY} \
+          --output-json=${GITHUB_WORKSPACE}/${{ inputs.scanning-report-path }}
+
+    - uses: actions/checkout@v2
+      if: inputs.scan-type != 'legacy' && ( success() || failure() ) 
+      name: Checkout scan repository
+      with:
+        repository: draios/infra-action-sysdig-scan
+        ref: main
+        path: '_scanning'
+
+    - name: Job Summary
+      if: inputs.scan-type != 'legacy' && ( success() || failure() ) 
+      uses: ./_scanning/.github/actions/tools
+      with:
+        report-file-path: ${{ inputs.scanning-report-path }}
