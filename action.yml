@@ -68,6 +68,7 @@ runs:
         endpoint: mycontext
 
     - name: "Legacy scanner"
+      continue-on-error: "${{ contains(github.event.head_commit.message, 'secure scan skip') }}"
       if: ${{ inputs.scan-type == 'legacy' || inputs.scan-type == 'both' }}
       uses: sysdiglabs/scan-action@v3.4.0
       with:
@@ -103,6 +104,7 @@ runs:
 
     - name: Scan the image using sysdig-cli-scanner
       shell: bash
+      continue-on-error: "${{ contains(github.event.head_commit.message, 'secure scan skip') }}"
       if: ${{ inputs.scan-type == 'new' || inputs.scan-type == 'both' }}
       env:
         SECURE_API_TOKEN: ${{ inputs.sysdig-secure-token }}
