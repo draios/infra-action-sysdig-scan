@@ -67,8 +67,15 @@ runs:
       with:
         endpoint: mycontext
 
+    - name: Validate skip scan
+      id: scan_validation
+      shell: bash
+      run: |
+        SKIP_SCAN=$(docker inspect ${{ inputs.image-tag }} | jq -r '.[0].Config.Labels | has("ignore-failed-scan")')
+        echo "ignore-failed-scan=${SKIP_SCAN}" >> $GITHUB_OUTPUT
+
     - name: "Legacy scanner"
-      continue-on-error: "${{ contains(github.event.head_commit.message, 'secure scan skip') }}"
+      continue-on-error: "${{ steps.scan_validation.outputs.ignore-failed-scan == 'true' }}"
       if: ${{ inputs.scan-type == 'legacy' || inputs.scan-type == 'both' }}
       uses: sysdiglabs/scan-action@v3.4.0
       with:
@@ -103,8 +110,8 @@ runs:
         fi
 
     - name: Scan the image using sysdig-cli-scanner
+      continue-on-error: "${{ steps.scan_validation.outputs.ignore-failed-scan == 'true' }}"
       shell: bash
-      continue-on-error: "${{ contains(github.event.head_commit.message, 'secure scan skip') }}"
       if: ${{ inputs.scan-type == 'new' || inputs.scan-type == 'both' }}
       env:
         SECURE_API_TOKEN: ${{ inputs.sysdig-secure-token }}
