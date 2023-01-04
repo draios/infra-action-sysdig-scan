@@ -130,10 +130,25 @@ runs:
     - uses: actions/checkout@v2
       if: inputs.scan-type != 'legacy' && ( success() || failure() ) 
       name: Checkout scan repository
+      env:
+        GIT_ACTION_REF: ${{ github.action_ref }}
       with:
         repository: draios/infra-action-sysdig-scan
-        ref: main
+        ref: ${{ env.GIT_ACTION_REF }}
         path: '_scanning'
+
+    - name: Use Node.js 
+      if: inputs.scan-type != 'legacy' && ( success() || failure() ) 
+      uses: actions/setup-node@v1
+      with:
+        node-version: 16
+
+    - name: npm install, build, and test
+      shell: bash
+      if: inputs.scan-type != 'legacy' && ( success() || failure() ) 
+      run: |
+        npm install
+      working-directory: ./_scanning/.github/actions/tools
 
     - name: Job Summary
       if: inputs.scan-type != 'legacy' && ( success() || failure() ) 
