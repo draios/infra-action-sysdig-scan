@@ -71,7 +71,7 @@ runs:
       id: scan_validation
       shell: bash
       run: |
-        SKIP_SCAN=$(docker inspect ${{ inputs.image-tag }} | jq -r '.[0].Config.Labels | has("ignore-failed-scan")')
+        SKIP_SCAN=$(docker inspect ${{ inputs.image-tag }} | jq -r '.[0].Config.Labels | has("com.sysdig.ignore-failed-scan")')
         echo "ignore-failed-scan=${SKIP_SCAN}" >> $GITHUB_OUTPUT
 
     - name: "Legacy scanner"
