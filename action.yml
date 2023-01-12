@@ -25,11 +25,6 @@ inputs:
     required: false
     default: "false"
 
-  ignore-failed-scan:
-    description: "Don't fail the execution of this action even if the scan result is FAILED"
-    required: false
-    default: "false"
-
   severity:
     description: "Severity level to fail the scan"
     required: false
@@ -43,6 +38,15 @@ inputs:
   github_token:
     description: "GITHUB Token used to tag the repo"
     required: false
+
+  policy-list:
+    description: "Comma separated list of policies to include"
+    required: false
+
+  scanning-report-path:
+    description: "Report file (relative path)."
+    required: false
+    default: "cache/vulnerabilities.json"
 
 runs:
   using: "composite"
@@ -58,8 +62,16 @@ runs:
       with:
         endpoint: mycontext
 
+    - name: Validate skip scan
+      id: scan_validation
+      shell: bash
+      run: |
+        SKIP_SCAN=$(docker inspect ${{ inputs.image-tag }} | jq -r '.[0].Config.Labels | has("com.sysdig.ignore-failed-scan")')
+        echo "ignore-failed-scan=${SKIP_SCAN}" >> $GITHUB_OUTPUT
+
     - name: "Legacy scanner"
-      if: ${{ inputs.scan-type == 'legacy' }}
+      continue-on-error: "${{ steps.scan_validation.outputs.ignore-failed-scan == 'true' }}"
+      if: ${{ inputs.scan-type == 'legacy' || inputs.scan-type == 'both' }}
       uses: sysdiglabs/scan-action@v3.4.0
       with:
         image-tag: ${{ inputs.image-tag }}
@@ -67,12 +79,11 @@ runs:
         input-type: ${{ inputs.input-type }}
         sysdig-secure-url: ${{ inputs.sysdig-secure-url }}
         sysdig-skip-tls: ${{ inputs.sysdig-skip-tls }}
-        ignore-failed-scan: ${{ inputs.ignore-failed-scan }}
         severity: ${{ inputs.severity }}
 
     - name: Setup cache
       uses: actions/cache@v3
-      if: ${{ inputs.scan-type == 'new' }}
+      if: ${{ inputs.scan-type == 'new' || inputs.scan-type == 'both' }}
       with:
         path: cache
         key: ${{ runner.os }}-cache-${{ hashFiles('**/sysdig-cli-scanner', '**/latest_version.txt', '**/db/main.db.meta.json', '**/scanner-cache/inlineScannerCache.db') }}
@@ -80,7 +91,7 @@ runs:
 
     - name: "Download sysdig-cli-scanner if needed"
       shell: bash
-      if: ${{ inputs.scan-type == 'new' }}
+      if: ${{ inputs.scan-type == 'new' || inputs.scan-type == 'both' }}
       run: |
         curl -sLO https://download.sysdig.com/scanning/sysdig-cli-scanner/latest_version.txt
         mkdir -p ${GITHUB_WORKSPACE}/cache/db/
@@ -93,14 +104,25 @@ runs:
         fi
 
     - name: Scan the image using sysdig-cli-scanner
+      continue-on-error: "${{ steps.scan_validation.outputs.ignore-failed-scan == 'true' }}"
       shell: bash
-      if: ${{ inputs.scan-type == 'new' }}
+      if: ${{ inputs.scan-type == 'new' || inputs.scan-type == 'both' }}
       env:
         SECURE_API_TOKEN: ${{ inputs.sysdig-secure-token }}
+        POLICY_LIST: ${{ inputs.policy-list }}
       run: |
+        POLICY_CMD="${POLICY_LIST:+--policy=$POLICY_LIST}"
+        POLICY="${POLICY_CMD:-}"
         ${GITHUB_WORKSPACE}/cache/sysdig-cli-scanner \
           --apiurl ${{ inputs.sysdig-secure-url }} \
-          docker://127.0.0.1/${{ inputs.image-tag }} \
+          docker://${{ inputs.image-tag }} \
           --console-log \
           --dbpath=${GITHUB_WORKSPACE}/cache/db/ \
-          --cachepath=${GITHUB_WORKSPACE}/cache/scanner-cache/
+          --cachepath=${GITHUB_WORKSPACE}/cache/scanner-cache/ ${POLICY} \
+          --output-json=${GITHUB_WORKSPACE}/${{ inputs.scanning-report-path }}
+
+    - name: Job Summary
+      if: inputs.scan-type != 'legacy' && ( success() || failure() )
+      uses: draios/infra-action-scanning-summary@v0.0.1
+      with:
+        report-file-path: ${{ inputs.scanning-report-path }}
