@@ -25,11 +25,6 @@ inputs:
     required: false
     default: "false"
 
-  ignore-failed-scan:
-    description: "Don't fail the execution of this action even if the scan result is FAILED"
-    required: false
-    default: "false"
-
   severity:
     description: "Severity level to fail the scan"
     required: false
@@ -84,7 +79,6 @@ runs:
         input-type: ${{ inputs.input-type }}
         sysdig-secure-url: ${{ inputs.sysdig-secure-url }}
         sysdig-skip-tls: ${{ inputs.sysdig-skip-tls }}
-        ignore-failed-scan: ${{ inputs.ignore-failed-scan }}
         severity: ${{ inputs.severity }}
 
     - name: Setup cache
