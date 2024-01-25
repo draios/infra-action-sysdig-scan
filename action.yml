@@ -82,7 +82,7 @@ runs:
         severity: ${{ inputs.severity }}
 
     - name: Setup cache
-      uses: actions/cache@v3
+      uses: actions/cache@v4
       if: ${{ inputs.scan-type == 'new' || inputs.scan-type == 'both' }}
       with:
         path: cache
