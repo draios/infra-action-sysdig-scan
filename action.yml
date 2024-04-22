@@ -72,7 +72,7 @@ runs:
     - name: "Legacy scanner"
       continue-on-error: "${{ steps.scan_validation.outputs.ignore-failed-scan == 'true' }}"
       if: ${{ inputs.scan-type == 'legacy' || inputs.scan-type == 'both' }}
-      uses: sysdiglabs/scan-action@v3.6.0
+      uses: sysdiglabs/scan-action@v5
       with:
         image-tag: ${{ inputs.image-tag }}
         sysdig-secure-token: ${{ inputs.sysdig-secure-token }}
